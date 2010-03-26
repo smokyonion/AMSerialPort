@@ -15,7 +15,7 @@
 
 - (void)awakeFromNib
 {
-	[deviceTextField setStringValue:@"/dev/cu.modem"]; // internal modem
+	[deviceTextField setStringValue:@"/dev/cu.usbserial"]; // internal modem
 	[inputTextField setStringValue: @"ati"]; // will ask for modem type
 
 	// register for port add/remove notification
