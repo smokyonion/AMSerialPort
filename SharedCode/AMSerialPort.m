@@ -758,6 +758,16 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	options->c_cc[VEOL] = eol;
 }
 
+- (unsigned long)minimumCharacterToRead
+{
+	return options->c_cc[VMIN];
+}
+
+- (void)setMinimumCharacterToRead:(unsigned long)minCharMustRead
+{
+	options->c_cc[VMIN] = minCharMustRead;
+}
+
 - (void)clearError
 {
 	// call this before changing any settings

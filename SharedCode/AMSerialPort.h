@@ -248,6 +248,9 @@ extern NSString *const AMSerialErrorDomain;
 - (char)endOfLineCharacter;
 - (void)setEndOfLineCharacter:(char)eol;
 
+- (unsigned long)minimumCharacterToRead;
+- (void)setMinimumCharacterToRead:(unsigned long)minCharMustRead;
+
 - (void)clearError;			// call this before changing any settings
 - (BOOL)commitChanges;	// call this after using any of the above set... functions
 - (int)errorCode;				// if -commitChanges returns NO, look here for further info
