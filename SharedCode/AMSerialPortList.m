@@ -52,12 +52,18 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 {
     @synchronized(self) {
         if (AMSerialPortListSingleton == nil) {
-#ifndef __OBJC_GC__
-			[[self alloc] init]; // assignment not done here
-#else
+#ifdef __OBJC_GC__
 			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
 			// it won't get collected since globals are strongly referenced.
-			AMSerialPortListSingleton = [[self alloc] init]; 
+			[[self alloc] init]; // assignment not done here
+#else
+			// The call to +alloc. Instead of sending it to MySingleton
+			// directly, we instead send it to [self class]. Normally they will 
+			// give the same result. We use this implementation because we want to
+			// take the full advantage of Objective-C's polymorphism. By dynamically 
+			// looking up the class object at runtime, this allows for the shared instance
+			// to be an instance of a particular subclass.
+			AMSerialPortListSingleton = [[[self class] alloc] init];
 #endif
        }
     }
@@ -66,23 +72,48 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 
 #ifndef __OBJC_GC__
 
+// Every method that causes the allocation of a new instance needs 
+// to be overridden to prevent instantiation
+// +alloc, +new, +allocWithZone
+
++ (id)alloc
+{
+	@synchronized([self class]) {
+		if (AMSerialPortListSingleton == nil) {
+			AMSerialPortListSingleton = [super alloc]; // assignment and return on first allocation
+			return AMSerialPortListSingleton;
+		}
+	}
+	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
+		  Use +sharedMySingleton instaed of +alloc", [[self class] className]);
+	return nil;
+}
+
 + (id)allocWithZone:(NSZone *)zone
 {
-	id result = nil;
-    @synchronized(self) {
+	@synchronized([self class]) {
         if (AMSerialPortListSingleton == nil) {
             AMSerialPortListSingleton = [super allocWithZone:zone];
-			result = AMSerialPortListSingleton;  // assignment and return on first allocation
-			//on subsequent allocation attempts return nil
+            return AMSerialPortListSingleton;  // assignment and return on first allocation
         }
     }
-	return result;
+	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
+		  Use +sharedMySingleton instaed of +allocWithZone", [[self class] className]);
+    return nil; // on subsequent allocation attempts return nil
 }
  
 - (id)copyWithZone:(NSZone *)zone
 {
-	(void)zone;
+	// -copy inherited from NSObject calls -copyWithZone:
+	NSLog(@"%@: attempt to -copy may be a bug", [[self class] className]);
+	//[self retain];
     return self;
+}
+
+- (id)mutableCopyWithZone:(NSZone *)zone
+{
+	// -mutableCopy inherited from NSObject calls -mutableCopyWithZone
+	return [self copyWithZone:zone];
 }
  
 - (id)retain
