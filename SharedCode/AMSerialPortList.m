@@ -102,6 +102,29 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
     return nil; // on subsequent allocation attempts return nil
 }
  
++ (id)new
+{
+	NSLog(@"%@: Use +sharedPortList instead of +new.", [[self class] className]);
+	@synchronized(self) {
+        if (AMSerialPortListSingleton == nil) {
+#ifdef __OBJC_GC__
+			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
+			// it won't get collected since globals are strongly referenced.
+			[[self alloc] init]; // assignment not done here
+#else
+			// The call to +alloc. Instead of sending it to MySingleton
+			// directly, we instead send it to [self class]. Normally they will 
+			// give the same result. We use this implementation because we want to
+			// take the full advantage of Objective-C's polymorphism. By dynamically 
+			// looking up the class object at runtime, this allows for the shared instance
+			// to be an instance of a particular subclass.
+			AMSerialPortListSingleton = [[[self class] alloc] init];
+#endif
+		}
+    }
+    return AMSerialPortListSingleton;
+}
+
 - (id)copyWithZone:(NSZone *)zone
 {
 	// -copy inherited from NSObject calls -copyWithZone:
