@@ -244,6 +244,19 @@
 #pragma mark threaded IO
 // ============================================================
 
+//- (void)readDataInBackground
+//{
+//#ifdef AMSerialDebug
+//	NSLog(@"readDataInBackground");
+//#endif
+//	if (delegateHandlesReadInBackground) {
+//		countReadInBackgroundThreads++;
+//		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
+//	} else {
+//		// ... throw exception?
+//	}
+//}
+
 - (void)readDataInBackground
 {
 #ifdef AMSerialDebug
@@ -251,7 +264,12 @@
 #endif
 	if (delegateHandlesReadInBackground) {
 		countReadInBackgroundThreads++;
-		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
+        NSInvocationOperation *readOperation = 
+        [[NSInvocationOperation alloc] initWithTarget:self 
+                                             selector:@selector(readDataInBackgroundThread)
+                                               object:nil];
+        [operationQueue addOperation:readOperation];
+        [readOperation release];
 	} else {
 		// ... throw exception?
 	}
@@ -265,6 +283,19 @@
 	stopReadInBackground = YES;
 }
 
+//- (void)writeDataInBackground:(NSData *)data
+//{
+//#ifdef AMSerialDebug
+//	NSLog(@"writeDataInBackground");
+//#endif
+//	if (delegateHandlesWriteInBackground) {
+//		countWriteInBackgroundThreads++;
+//		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
+//	} else {
+//		// ... throw exception?
+//	}
+//}
+
 - (void)writeDataInBackground:(NSData *)data
 {
 #ifdef AMSerialDebug
@@ -272,7 +303,12 @@
 #endif
 	if (delegateHandlesWriteInBackground) {
 		countWriteInBackgroundThreads++;
-		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
+        NSInvocationOperation *writeOperation = 
+        [[NSInvocationOperation alloc] initWithTarget:self 
+                                             selector:@selector(writeDataInBackgroundThread:)
+                                               object:data];
+        [operationQueue addOperation:writeOperation];
+        [writeOperation release];
 	} else {
 		// ... throw exception?
 	}
