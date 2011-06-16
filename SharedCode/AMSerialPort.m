@@ -80,7 +80,11 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		writeLock = [[NSLock alloc] init];
 		readLock = [[NSLock alloc] init];
 		closeLock = [[NSLock alloc] init];
-		
+
+		operationQueue = [[NSOperationQueue alloc] init];
+        [operationQueue setName:@"Command Read/Write Operation"];
+        [operationQueue setMaxConcurrentOperationCount:1]; // We do not allowed read/write been processed at the same time.
+        
 		// By default blocking read attempts will timeout after 1 second
 		[self setReadTimeout:1.0];
 		
@@ -117,6 +121,7 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	[serviceName release]; serviceName = nil;
 	[serviceType release]; serviceType = nil;
 	[bsdPath release]; bsdPath = nil;
+    [operationQueue release]; operationQueue = nil;
 	[super dealloc];
 }
 

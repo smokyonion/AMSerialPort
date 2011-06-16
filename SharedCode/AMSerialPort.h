@@ -136,6 +136,7 @@ extern NSString *const AMSerialErrorDomain;
 	int countWriteInBackgroundThreads;
 	BOOL stopReadInBackground;
 	int countReadInBackgroundThreads;
+    NSOperationQueue *operationQueue;
 }
 
 - (id)init:(NSString *)path withName:(NSString *)name type:(NSString *)serialType;
