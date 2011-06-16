@@ -100,7 +100,8 @@ typedef enum {
 
 extern NSString *const AMSerialErrorDomain;
 
-@interface NSObject (AMSerialDelegate)
+@protocol AMSerialDelegate
+@required
 - (void)serialPortReadData:(NSDictionary *)dataDictionary;
 - (void)serialPortWriteProgress:(NSDictionary *)dataDictionary;
 @end
