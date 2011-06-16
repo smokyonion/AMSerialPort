@@ -4,4 +4,6 @@ build
 *.tm_build_errors
 *.dmg
 .DS_Store
+*.xcworkspace
+xcuserdata
 
