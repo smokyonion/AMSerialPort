@@ -7,9 +7,9 @@ Change Notes of this fork
 ============
 
 2011-06-16
-*Changed base SDK from 10.5 to 10.6
-*Replaced NSThread with NSOperation
-*Replaced informal protocol with formal protocol
+- Changed base SDK from 10.5 to 10.6
+- Replaced NSThread with NSOperation
+- Replaced informal protocol with formal protocol
 
 LICENSE
 =======
