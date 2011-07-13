@@ -2,7 +2,7 @@
 //  AMSerialPortAdditions.m
 //
 //  Created by Andreas on Thu May 02 2002.
-//  Copyright (c) 2001-2010 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2011 Andreas Mayer. All rights reserved.
 //
 //  2002-07-02 Andreas Mayer
 //	- initialize buffer in readString
@@ -38,12 +38,6 @@
 #import <sys/ioctl.h>
 #import <sys/filio.h>
 #import <pthread.h>
-
-#import <assert.h>
-#import <CoreServices/CoreServices.h>
-#import <mach/mach.h>
-#import <mach/mach_time.h>
-#import <unistd.h>
 
 #import "AMSerialPortAdditions.h"
 #import "AMSerialErrors.h"
@@ -194,7 +188,7 @@
 	if (error) {
 		NSDictionary *userInfo = nil;
 		if (bytesWritten > 0) {
-			NSNumber* bytesWrittenNum = [NSNumber numberWithUnsignedLongLong:bytesWritten];
+			NSNumber* bytesWrittenNum = [NSNumber numberWithLongLong:bytesWritten];
 			userInfo = [NSDictionary dictionaryWithObject:bytesWrittenNum forKey:@"bytesWritten"];
 		}
 		*error = [NSError errorWithDomain:AMSerialErrorDomain code:errorCode userInfo:userInfo];
@@ -250,19 +244,6 @@
 #pragma mark threaded IO
 // ============================================================
 
-//- (void)readDataInBackground
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"readDataInBackground");
-//#endif
-//	if (delegateHandlesReadInBackground) {
-//		countReadInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)readDataInBackground
 {
 #ifdef AMSerialDebug
@@ -270,12 +251,7 @@
 #endif
 	if (delegateHandlesReadInBackground) {
 		countReadInBackgroundThreads++;
-        NSInvocationOperation *readOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(readDataInBackgroundThread)
-                                               object:nil];
-        [operationQueue addOperation:readOperation];
-        [readOperation release];
+		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
 	} else {
 		// ... throw exception?
 	}
@@ -289,19 +265,6 @@
 	stopReadInBackground = YES;
 }
 
-//- (void)writeDataInBackground:(NSData *)data
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"writeDataInBackground");
-//#endif
-//	if (delegateHandlesWriteInBackground) {
-//		countWriteInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)writeDataInBackground:(NSData *)data
 {
 #ifdef AMSerialDebug
@@ -309,12 +272,7 @@
 #endif
 	if (delegateHandlesWriteInBackground) {
 		countWriteInBackgroundThreads++;
-        NSInvocationOperation *writeOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(writeDataInBackgroundThread:)
-                                               object:data];
-        [operationQueue addOperation:writeOperation];
-        [writeOperation release];
+		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
 	} else {
 		// ... throw exception?
 	}
@@ -338,31 +296,14 @@
 
 #pragma mark -
 
-//http://developer.apple.com/library/mac/#qa/qa1398/_index.html
-static uint64_t AMMicrosecondsSinceBoot (void)
+static int64_t AMMicrosecondsSinceBoot (void)
 {
-    uint64_t machTime;
-    uint64_t nanoSeconds;
-    static mach_timebase_info_data_t    sTimebaseInfo;
-    
-    // Get the current clock time.
-    machTime = mach_absolute_time();
-    
-    // If this is the first time we've run, get the timebase.
-    // We can use denom == 0 to indicate that sTimebaseInfo is
-    // uninitialised because it makes no sense to have a zero
-    // denominator is a fraction.
-    
-    if ( sTimebaseInfo.denom == 0 ) {
-        (void) mach_timebase_info(&sTimebaseInfo);
-    }
-    
-    // Do the maths. We hope that the multiplication doesn't
-    // overflow; the price you pay for working in fixed point.
-    
-    nanoSeconds = machTime * sTimebaseInfo.numer / sTimebaseInfo.denom;
-    
-    return (nanoSeconds / 1000);
+	AbsoluteTime uptime1 = UpTime();
+	Nanoseconds uptime2 = AbsoluteToNanoseconds(uptime1);
+	uint64_t uptime3 = (((uint64_t)uptime2.hi) << 32) + (uint64_t)uptime2.lo;
+	uint64_t uptime4 = uptime3 / NSEC_PER_USEC;
+	
+	return (int64_t)uptime4;
 }
 
 @implementation AMSerialPort (AMSerialPortAdditionsPrivate)
