@@ -18,8 +18,6 @@
 //  2007-10-26 Sean McBride
 //  - made code 64 bit and garbage collection clean
 
-#import "AMSDKCompatibility.h"
-
 #import <Foundation/Foundation.h>
 
 // For constants clients will want to pass to methods that want a 'serialTypeKey'
@@ -38,20 +36,15 @@ extern NSString * const AMSerialPortListRemovedPorts;
 @interface AMSerialPortList : NSObject
 {
 @private
-	NSMutableArray *portList;
+    IONotificationPortRef notificationPort;
+    NSMutableArray *portList;
 }
 
 + (AMSerialPortList *)sharedPortList;
 
-+ (NSEnumerator *)portEnumerator;
-+ (NSEnumerator *)portEnumeratorForSerialPortsOfType:(NSString *)serialTypeKey;
-
-- (NSUInteger)count;
-- (AMSerialPort *)objectAtIndex:(NSUInteger)idx;
-- (AMSerialPort *)objectWithName:(NSString *)name;
-
 - (NSArray *)serialPorts;
+- (AMSerialPort *)serialPortForPath:(NSString *)bsdPath;
+- (AMSerialPort *)serialPortForName:(NSString *)name;
 - (NSArray *)serialPortsOfType:(NSString *)serialTypeKey;
-
 
 @end

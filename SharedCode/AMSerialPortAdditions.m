@@ -33,8 +33,6 @@
 //  - don't rely on system clock for measuring elapsed time (because the user can change the clock)
 
 
-#import "AMSDKCompatibility.h"
-
 #import <sys/ioctl.h>
 #import <sys/filio.h>
 #import <pthread.h>
@@ -42,6 +40,14 @@
 #import "AMSerialPortAdditions.h"
 #import "AMSerialErrors.h"
 
+static dispatch_queue_t AMSerialQueue() {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("com.smokyonion.AMSerialPort.SerialQueue", NULL);
+    });
+    return queue;
+}
 
 @interface AMSerialPort (AMSerialPortAdditionsPrivate)
 - (void)readDataInBackgroundThread;
@@ -164,7 +170,9 @@
 - (BOOL)writeData:(NSData *)data error:(NSError **)error
 {
 #ifdef AMSerialDebug
-	NSLog(@"•wrote: %@ • %@", data, [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+	NSString* string = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+	NSLog(@"•wrote: %@ • %@", data, string);
+	[string release];
 #endif
 
 	BOOL result = NO;
@@ -193,9 +201,6 @@
 		}
 		*error = [NSError errorWithDomain:AMSerialErrorDomain code:errorCode userInfo:userInfo];
 	}
-	
-	// To prevent premature collection.  (Under GC, the given NSData may have no strong references for all we know, and our inner pointer does not keep the NSData alive.  So without this, the data could be collected before we are done with it!)
-	[data self];
 	
 	return result;
 }
@@ -244,32 +249,14 @@
 #pragma mark threaded IO
 // ============================================================
 
-//- (void)readDataInBackground
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"readDataInBackground");
-//#endif
-//	if (delegateHandlesReadInBackground) {
-//		countReadInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)readDataInBackground
 {
 #ifdef AMSerialDebug
 	NSLog(@"readDataInBackground");
 #endif
-	if (delegateHandlesReadInBackground) {
+	if (self.readDelegate) {
 		countReadInBackgroundThreads++;
-        NSInvocationOperation *readOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(readDataInBackgroundThread)
-                                               object:nil];
-        [operationQueue addOperation:readOperation];
-        [readOperation release];
+		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
 	} else {
 		// ... throw exception?
 	}
@@ -283,32 +270,14 @@
 	stopReadInBackground = YES;
 }
 
-//- (void)writeDataInBackground:(NSData *)data
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"writeDataInBackground");
-//#endif
-//	if (delegateHandlesWriteInBackground) {
-//		countWriteInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)writeDataInBackground:(NSData *)data
 {
 #ifdef AMSerialDebug
 	NSLog(@"writeDataInBackground");
 #endif
-	if (delegateHandlesWriteInBackground) {
+	if (self.writeDelegate) {
 		countWriteInBackgroundThreads++;
-        NSInvocationOperation *writeOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(writeDataInBackgroundThread:)
-                                               object:data];
-        [operationQueue addOperation:writeOperation];
-        [writeOperation release];
+		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
 	} else {
 		// ... throw exception?
 	}
@@ -351,9 +320,7 @@ static int64_t AMMicrosecondsSinceBoot (void)
 
 - (void)readDataInBackgroundThread
 {
-#if (MAC_OS_X_VERSION_MIN_REQUIRED >= 1060)
 	(void)pthread_setname_np ("de.harmless.AMSerialPort.readDataInBackgroundThread");
-#endif
 	
 	NSData *data = nil;
 	void *localBuffer;
@@ -378,8 +345,17 @@ static int64_t AMMicrosecondsSinceBoot (void)
 		if ((res >= 1) && (fileDescriptor >= 0)) {
 			bytesRead = read(fileDescriptor, localBuffer, AMSER_MAXBUFSIZE);
 		}
-		data = [NSData dataWithBytes:localBuffer length:bytesRead];
-		[delegate performSelectorOnMainThread:@selector(serialPortReadData:) withObject:[NSDictionary dictionaryWithObjectsAndKeys: self, @"serialPort", data, @"data", nil] waitUntilDone:NO];
+        // -1 suggests that read failed, perhaps because the port was closed
+        if (bytesRead > 0) {
+            data = [NSData dataWithBytes:localBuffer length:bytesRead];
+            dispatch_async(AMSerialQueue(), ^{
+                [self.readDelegate serialPort:self didReadData:data];
+            });      
+        } else {
+#ifdef AMSerialDebug
+            NSLog(@"failed to read from port %@, possibly closed", bsdPath);
+#endif
+        }
 	} else {
 		[closeLock unlock];
 	}
@@ -458,9 +434,7 @@ static int64_t AMMicrosecondsSinceBoot (void)
 
 - (void)writeDataInBackgroundThread:(NSData *)data
 {
-#if (MAC_OS_X_VERSION_MIN_REQUIRED >= 1060)
 	(void)pthread_setname_np ("de.harmless.AMSerialPort.writeDataInBackgroundThread");
-#endif
 	
 #ifdef AMSerialDebug
 	NSLog(@"writeDataInBackgroundThread");
@@ -574,7 +548,7 @@ static int64_t AMMicrosecondsSinceBoot (void)
 			timeout.tv_sec = (__darwin_time_t)(remainingTimeout / 1000000);
 			timeout.tv_usec = (__darwin_suseconds_t)(remainingTimeout - (timeout.tv_sec * 1000000));
 #ifdef AMSerialDebug
-			NSLog(@"timeout remaining: %qd us = %d s and %d us", remainingTimeout, timeout.tv_sec, timeout.tv_usec);
+			NSLog(@"timeout remaining: %qd us = %d s and %d us", remainingTimeout, (int)timeout.tv_sec, timeout.tv_usec);
 #endif
 			
 			// If the remaining time is so small that it has rounded to zero, bump it up to 1 microsecond.
@@ -655,7 +629,9 @@ static int64_t AMMicrosecondsSinceBoot (void)
 	}
 	
 #ifdef AMSerialDebug
-	NSLog(@"• read: %@ • %@", result, [[NSString alloc] initWithData:result encoding:NSUTF8StringEncoding]);
+	NSString* string = [[NSString alloc] initWithData:result encoding:NSUTF8StringEncoding];
+	NSLog(@"• read: %@ • %@", result, string);
+	[string release];
 #endif
 
 	return result;
@@ -666,12 +642,9 @@ static int64_t AMMicrosecondsSinceBoot (void)
 #ifdef AMSerialDebug
 	NSLog(@"send AMSerialWriteInBackgroundProgressMessage");
 #endif
-	[delegate performSelectorOnMainThread:@selector(serialPortWriteProgress:) withObject:
-		[NSDictionary dictionaryWithObjectsAndKeys:
-			self, @"serialPort",
-			[NSNumber numberWithUnsignedLongLong:progress], @"value",
-			[NSNumber numberWithUnsignedLongLong:dataLen], @"total", nil]
-		waitUntilDone:NO];
+    dispatch_async(AMSerialQueue(), ^{
+        [self.writeDelegate serialPort:self didMakeWriteProgress:progress total:dataLen];
+    });
 }
 
 @end

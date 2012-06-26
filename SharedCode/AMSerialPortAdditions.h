@@ -26,8 +26,6 @@
 //  2009-05-08 Sean McBride
 //  - added writeBytes:length:error: method
 
-#import "AMSDKCompatibility.h"
-
 #import <Foundation/Foundation.h>
 #import "AMSerialPort.h"
 
@@ -74,10 +72,7 @@
 
 - (void)readDataInBackground;
 //
-// Will send serialPortReadData: to delegate
-// the dataDictionary object will contain these entries:
-// 1. "serialPort": the AMSerialPort object that sent the message
-// 2. "data": (NSData *)data - received data
+// Will message delegate with serialPort:readData:
 
 - (void)stopReadInBackground;
 

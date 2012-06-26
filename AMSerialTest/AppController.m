@@ -10,20 +10,24 @@
 #import "AMSerialPortList.h"
 #import "AMSerialPortAdditions.h"
 
+@interface AppController ()
+- (void)connect:(id)sender;
+@end
+
 @implementation AppController
 
 
-- (void)awakeFromNib
+- (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-	[deviceTextField setStringValue:@"/dev/cu.usbserial"]; // default: cu.modem
 	[inputTextField setStringValue: @"ati"]; // will ask for modem type
-
+    
 	// register for port add/remove notification
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didAddPorts:) name:AMSerialPortListDidAddPortsNotification object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didRemovePorts:) name:AMSerialPortListDidRemovePortsNotification object:nil];
 	[AMSerialPortList sharedPortList]; // initialize port list to arm notifications
+    
+    [self listDevices:nil];
 }
-
 
 - (AMSerialPort *)port
 {
@@ -44,38 +48,36 @@
 
 - (void)initPort
 {
-	NSString *deviceName = [deviceTextField stringValue];
-	if (![deviceName isEqualToString:[port bsdPath]]) {
-		[port close];
+	[port close];
+    
+    // register as self as delegate for port
+    [port setReadDelegate:self];
+    [port setWriteDelegate:self];
+    
+    [outputTextView insertText:@"attempting to open port\r"];
+    [outputTextView setNeedsDisplay:YES];
+    [outputTextView displayIfNeeded];
+    
+    // open port - may take a few seconds ...
+    if ([port open]) {
+        
+        [outputTextView insertText:@"port opened\r"];
+        [outputTextView insertText:[NSString stringWithFormat:@"port type: %@", [port type]]];
+        [outputTextView setNeedsDisplay:YES];
+        [outputTextView displayIfNeeded];
+        
+        // listen for data in a separate thread
+        [port readDataInBackground];
+        
+    } else { // an error occured while creating port
+        [outputTextView insertText:@"couldn't open port for device "];
+        [outputTextView insertText:[port name]];
+        [outputTextView insertText:@"\r"];
+        [outputTextView setNeedsDisplay:YES];
+        [outputTextView displayIfNeeded];
+        [self setPort:nil];
+    }
 
-		[self setPort:[[[AMSerialPort alloc] init:deviceName withName:deviceName type:(NSString*)CFSTR(kIOSerialBSDModemType)] autorelease]];
-		
-		// register as self as delegate for port
-		[port setDelegate:self];
-		
-		[outputTextView insertText:@"attempting to open port\r"];
-		[outputTextView setNeedsDisplay:YES];
-		[outputTextView displayIfNeeded];
-		
-		// open port - may take a few seconds ...
-		if ([port open]) {
-			
-			[outputTextView insertText:@"port opened\r"];
-			[outputTextView setNeedsDisplay:YES];
-			[outputTextView displayIfNeeded];
-
-			// listen for data in a separate thread
-			[port readDataInBackground];
-			
-		} else { // an error occured while creating port
-			[outputTextView insertText:@"couldn't open port for device "];
-			[outputTextView insertText:deviceName];
-			[outputTextView insertText:@"\r"];
-			[outputTextView setNeedsDisplay:YES];
-			[outputTextView displayIfNeeded];
-			[self setPort:nil];
-		}
-	}
 }
 
 - (void)serialPortReadData:(NSDictionary *)dataDictionary
@@ -116,26 +118,46 @@
 	[outputTextView setNeedsDisplay:YES];
 }
 
+- (void)connect:(id)sender
+{
+
+}
 
 - (IBAction)listDevices:(id)sender
 {
-	// get an port enumerator
-	NSEnumerator *enumerator = [AMSerialPortList portEnumerator];
-	AMSerialPort *aPort;
-	while ((aPort = [enumerator nextObject])) {
-		// print port name
+    // Clean PopUp
+    [portsPopUp removeAllItems];
+
+    NSMenu *menu = [[NSMenu alloc] init];
+    NSArray *ports = [[AMSerialPortList sharedPortList] serialPorts];
+    
+    for (AMSerialPort *aPort in ports) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[aPort name] action:@selector(chooseDevice:) keyEquivalent:@""];
+        [item setRepresentedObject:aPort];
+        [menu addItem:item];
+        [item release];
+        
+        // print port name
 		[outputTextView insertText:[aPort name]];
 		[outputTextView insertText:@":"];
 		[outputTextView insertText:[aPort bsdPath]];
 		[outputTextView insertText:@"\r"];
-	}
-	[outputTextView setNeedsDisplay:YES];
+        [outputTextView setNeedsDisplay:YES];
+    }
+    
+    [portsPopUp setMenu:menu];
+    [menu release];
 }
 
 - (IBAction)chooseDevice:(id)sender
 {
-	// new device selected
+    [sender setEnabled:NO];
+    AMSerialPort *aPort = [(NSMenuItem *)sender representedObject];
+    [self setPort:aPort];
+    [deviceTextField setStringValue:[aPort bsdPath]];
+    // new device selected
 	[self initPort];
+    [sender setEnabled:YES];
 }
 
 - (IBAction)send:(id)sender
@@ -152,6 +174,17 @@
 	}
 }
 
+#pragma mark AMSerialPortReadDelegate
+- (void)serialPort:(AMSerialPort *)port didReadData:(NSData *)data
+{
+    
+}
 
+#pragma mark AMSerialPortWriteDelegate
+// apparently the delegate only gets messaged on longer writes
+- (void)serialPort:(AMSerialPort *)port didMakeWriteProgress:(NSUInteger)progress total:(NSUInteger)total
+{
+    
+}
 
 @end
