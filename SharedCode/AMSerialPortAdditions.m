@@ -39,6 +39,12 @@
 #import <sys/filio.h>
 #import <pthread.h>
 
+#import <assert.h>
+#import <CoreServices/CoreServices.h>
+#import <mach/mach.h>
+#import <mach/mach_time.h>
+#import <unistd.h>
+
 #import "AMSerialPortAdditions.h"
 #import "AMSerialErrors.h"
 
@@ -332,14 +338,41 @@
 
 #pragma mark -
 
-static int64_t AMMicrosecondsSinceBoot (void)
+//static int64_t AMMicrosecondsSinceBoot (void)
+//{
+//	AbsoluteTime uptime1 = UpTime();
+//	Nanoseconds uptime2 = AbsoluteToNanoseconds(uptime1);
+//	uint64_t uptime3 = (((uint64_t)uptime2.hi) << 32) + (uint64_t)uptime2.lo;
+//	int64_t uptime4 = uptime3 / 1000;
+//	
+//	return uptime4;
+//}
+
+//http://developer.apple.com/library/mac/#qa/qa1398/_index.html
+static uint64_t AMMicrosecondsSinceBoot (void)
 {
-	AbsoluteTime uptime1 = UpTime();
-	Nanoseconds uptime2 = AbsoluteToNanoseconds(uptime1);
-	uint64_t uptime3 = (((uint64_t)uptime2.hi) << 32) + (uint64_t)uptime2.lo;
-	int64_t uptime4 = uptime3 / 1000;
-	
-	return uptime4;
+    uint64_t machTime;
+    uint64_t nanoSeconds;
+    static mach_timebase_info_data_t    sTimebaseInfo;
+    
+    // Get the current clock time.
+    machTime = mach_absolute_time();
+    
+    // If this is the first time we've run, get the timebase.
+    // We can use denom == 0 to indicate that sTimebaseInfo is
+    // uninitialised because it makes no sense to have a zero
+    // denominator is a fraction.
+    
+    if ( sTimebaseInfo.denom == 0 ) {
+        (void) mach_timebase_info(&sTimebaseInfo);
+    }
+    
+    // Do the maths. We hope that the multiplication doesn't
+    // overflow; the price you pay for working in fixed point.
+    
+    nanoSeconds = machTime * sTimebaseInfo.numer / sTimebaseInfo.denom;
+    
+    return (nanoSeconds / 1000);
 }
 
 @implementation AMSerialPort (AMSerialPortAdditionsPrivate)
