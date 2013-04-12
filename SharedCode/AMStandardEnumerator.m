@@ -2,10 +2,14 @@
 //  AMStandardEnumerator.m
 //
 //  Created by Andreas on Mon Aug 04 2003.
-//  Copyright (c) 2003-2009 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2003-2012 Andreas Mayer. All rights reserved.
 //
 //  2007-10-26 Sean McBride
 //  - made code 64 bit and garbage collection clean
+//	2011-10-18 Andreas Mayer
+//	- added ARC compatibility
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
 
 #import "AMSDKCompatibility.h"
 
@@ -15,11 +19,14 @@
 @implementation AMStandardEnumerator
 
 // Designated initializer
-- (id)initWithCollection:(id)theCollection countSelector:(SEL)theCountSelector objectAtIndexSelector:(SEL)theObjectSelector
+- (instancetype)initWithCollection:(id)theCollection countSelector:(SEL)theCountSelector objectAtIndexSelector:(SEL)theObjectSelector
 {
 	self = [super init];
 	if (self) {
-		collection = [theCollection retain];
+		collection = theCollection;
+#if !__has_feature(objc_arc)
+		[collection retain];
+#endif
 		countSelector = theCountSelector;
 		count = (CountMethod)[collection methodForSelector:countSelector];
 		nextObjectSelector = theObjectSelector;
@@ -30,6 +37,7 @@
 }
 
 #ifndef __OBJC_GC__
+#if !__has_feature(objc_arc)
 
 - (void)dealloc
 {
@@ -37,6 +45,7 @@
 	[super dealloc];
 }
 
+#endif
 #endif
 
 - (id)nextObject
@@ -49,7 +58,7 @@
 
 - (NSArray *)allObjects
 {
-	NSMutableArray *result = [[[NSMutableArray alloc] init] autorelease];
+	NSMutableArray *result = [NSMutableArray array];
 	id object;
 	while ((object = [self nextObject]) != nil)
 		[result addObject:object];
