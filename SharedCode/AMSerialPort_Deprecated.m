@@ -3,7 +3,7 @@
 //  AMSerialTest
 //
 //  Created by Andreas on 26.07.06.
-//  Copyright 2006-2009 Andreas Mayer. All rights reserved.
+//  Copyright 2006-2012 Andreas Mayer. All rights reserved.
 //
 
 #import "AMSerialPort_Deprecated.h"
@@ -12,7 +12,7 @@
 
 @implementation AMSerialPort (Deprecated)
 
-- (id)init:(NSString *)path withName:(NSString *)name
+- (instancetype)init:(NSString *)path withName:(NSString *)name
 {
 	return [self init:path withName:name type:@""];
 }
@@ -32,7 +32,7 @@
 // renamed to -dataBits
 - (int)getDataBits
 {
-	return [self dataBits];
+	return (int)[self dataBits];
 }
 
 // replaced by  -parity
@@ -85,7 +85,7 @@
 		[self setStopBits:kAMSerialStopBitsOne];
 	}
 }
-																	
+
 // renamed to -echoEnabled
 - (BOOL)testEchoEnabled
 {
@@ -137,7 +137,7 @@
 // renamed to -setLocalMode:
 - (void)setLocal:(BOOL)local
 {
-	return [self setLocalMode:local];
+	[self setLocalMode:local];
 }
 
 // renamed to -bytesAvailable

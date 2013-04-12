@@ -2,7 +2,7 @@
 //  AMSerialPortAdditions.m
 //
 //  Created by Andreas on Thu May 02 2002.
-//  Copyright (c) 2001-2010 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2012 Andreas Mayer. All rights reserved.
 //
 //  2002-07-02 Andreas Mayer
 //	- initialize buffer in readString
@@ -31,6 +31,12 @@
 //  - fixed some memory management issues
 //  - the timeout feature (for reading) was broken, now fixed
 //  - don't rely on system clock for measuring elapsed time (because the user can change the clock)
+//	2011-10-18 Andreas Mayer
+//	- added ARC compatibility
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
+//	2012-03-12 Sean McBride
+//	- replaced deprecated UpTime function with mach_absolute_time
 
 
 #import "AMSDKCompatibility.h"
@@ -38,12 +44,7 @@
 #import <sys/ioctl.h>
 #import <sys/filio.h>
 #import <pthread.h>
-
-#import <assert.h>
-#import <CoreServices/CoreServices.h>
-#import <mach/mach.h>
 #import <mach/mach_time.h>
-#import <unistd.h>
 
 #import "AMSerialPortAdditions.h"
 #import "AMSerialErrors.h"
@@ -83,6 +84,9 @@
 		res = select(fileDescriptor+1, readfds, nil, nil, &timeout);
 		if (res >= 1) {
 			NSString *readStr = [self readStringUsingEncoding:NSUTF8StringEncoding error:NULL];
+			// ARC will complain because the selector is unknown at this point; this is correct.
+			// We might replace -waitForInput:selector: with a block based method in the future
+			// and thus avoid this problem.
 			[[self am_readTarget] performSelector:am_readSelector withObject:readStr];
 			[self am_setReadTarget:nil];
 		} else {
@@ -129,7 +133,10 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:NO bytes:0 stopAtChar:NO stopChar:0 error:error];
 	if (data) {
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+		result = [[NSString alloc] initWithData:data encoding:encoding];
+#if !__has_feature(objc_arc)
+		[result autorelease];
+#endif
 	}
 	return result;
 }
@@ -139,7 +146,10 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:YES bytes:bytes stopAtChar:NO stopChar:0 error:error];
 	if (data) {
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+		result = [[NSString alloc] initWithData:data encoding:encoding];
+#if !__has_feature(objc_arc)
+		[result autorelease];
+#endif
 	}
 	return result;
 }
@@ -150,7 +160,10 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:NO bytes:0 stopAtChar:YES stopChar:stopChar error:error];
 	if (data) {
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+		result = [[NSString alloc] initWithData:data encoding:encoding];
+#if !__has_feature(objc_arc)
+		[result autorelease];
+#endif
 	}
 	return result;
 }
@@ -160,7 +173,10 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:YES bytes:bytes stopAtChar:YES stopChar:stopChar error:error];
 	if (data) {
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+		result = [[NSString alloc] initWithData:data encoding:encoding];
+#if !__has_feature(objc_arc)
+		[result autorelease];
+#endif
 	}
 	return result;
 }
@@ -194,7 +210,7 @@
 	if (error) {
 		NSDictionary *userInfo = nil;
 		if (bytesWritten > 0) {
-			NSNumber* bytesWrittenNum = [NSNumber numberWithUnsignedLongLong:bytesWritten];
+			NSNumber* bytesWrittenNum = [NSNumber numberWithLongLong:bytesWritten];
 			userInfo = [NSDictionary dictionaryWithObject:bytesWrittenNum forKey:@"bytesWritten"];
 		}
 		*error = [NSError errorWithDomain:AMSerialErrorDomain code:errorCode userInfo:userInfo];
@@ -250,19 +266,6 @@
 #pragma mark threaded IO
 // ============================================================
 
-//- (void)readDataInBackground
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"readDataInBackground");
-//#endif
-//	if (delegateHandlesReadInBackground) {
-//		countReadInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)readDataInBackground
 {
 #ifdef AMSerialDebug
@@ -270,12 +273,7 @@
 #endif
 	if (delegateHandlesReadInBackground) {
 		countReadInBackgroundThreads++;
-        NSInvocationOperation *readOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(readDataInBackgroundThread)
-                                               object:nil];
-        [operationQueue addOperation:readOperation];
-        [readOperation release];
+		[NSThread detachNewThreadSelector:@selector(readDataInBackgroundThread) toTarget:self withObject:nil];
 	} else {
 		// ... throw exception?
 	}
@@ -289,19 +287,6 @@
 	stopReadInBackground = YES;
 }
 
-//- (void)writeDataInBackground:(NSData *)data
-//{
-//#ifdef AMSerialDebug
-//	NSLog(@"writeDataInBackground");
-//#endif
-//	if (delegateHandlesWriteInBackground) {
-//		countWriteInBackgroundThreads++;
-//		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
-//	} else {
-//		// ... throw exception?
-//	}
-//}
-
 - (void)writeDataInBackground:(NSData *)data
 {
 #ifdef AMSerialDebug
@@ -309,12 +294,7 @@
 #endif
 	if (delegateHandlesWriteInBackground) {
 		countWriteInBackgroundThreads++;
-        NSInvocationOperation *writeOperation = 
-        [[NSInvocationOperation alloc] initWithTarget:self 
-                                             selector:@selector(writeDataInBackgroundThread:)
-                                               object:data];
-        [operationQueue addOperation:writeOperation];
-        [writeOperation release];
+		[NSThread detachNewThreadSelector:@selector(writeDataInBackgroundThread:) toTarget:self withObject:data];
 	} else {
 		// ... throw exception?
 	}
@@ -338,31 +318,21 @@
 
 #pragma mark -
 
-//http://developer.apple.com/library/mac/#qa/qa1398/_index.html
-static uint64_t AMMicrosecondsSinceBoot (void)
+static int64_t AMMicrosecondsSinceBoot (void)
 {
-    uint64_t machTime;
-    uint64_t nanoSeconds;
-    static mach_timebase_info_data_t    sTimebaseInfo;
-    
-    // Get the current clock time.
-    machTime = mach_absolute_time();
-    
-    // If this is the first time we've run, get the timebase.
-    // We can use denom == 0 to indicate that sTimebaseInfo is
-    // uninitialised because it makes no sense to have a zero
-    // denominator is a fraction.
-    
-    if ( sTimebaseInfo.denom == 0 ) {
-        (void) mach_timebase_info(&sTimebaseInfo);
-    }
-    
-    // Do the maths. We hope that the multiplication doesn't
-    // overflow; the price you pay for working in fixed point.
-    
-    nanoSeconds = machTime * sTimebaseInfo.numer / sTimebaseInfo.denom;
-    
-    return (nanoSeconds / 1000);
+	static mach_timebase_info_data_t machTimeBaseInfo;
+	
+	// If this is the first time we've run, get the timebase.
+	if (machTimeBaseInfo.denom == 0)
+	{
+		mach_timebase_info(&machTimeBaseInfo);
+	}
+	
+	// Convert to microseconds.
+	uint64_t uptime = mach_absolute_time();
+	uint64_t uptimeMicro = uptime * machTimeBaseInfo.numer / machTimeBaseInfo.denom / NSEC_PER_USEC;
+	
+	return uptimeMicro;
 }
 
 @implementation AMSerialPort (AMSerialPortAdditionsPrivate)
@@ -388,7 +358,12 @@ static uint64_t AMMicrosecondsSinceBoot (void)
 
 	localBuffer = malloc(AMSER_MAXBUFSIZE);
 	stopReadInBackground = NO;
+#if __has_feature(objc_arc)
+	@autoreleasepool
+#else
 	NSAutoreleasePool *localAutoreleasePool = [[NSAutoreleasePool alloc] init];
+#endif
+	{
 	[closeLock lock];
 	if ((fileDescriptor >= 0) && (!stopReadInBackground)) {
 		//NSLog(@"readDataInBackgroundThread - [closeLock lock]");
@@ -406,7 +381,10 @@ static uint64_t AMMicrosecondsSinceBoot (void)
 	} else {
 		[closeLock unlock];
 	}
+	}
+#if !__has_feature(objc_arc)
 	[localAutoreleasePool drain];
+#endif
 	free(localReadFDs);
 	free(localBuffer);
 
@@ -499,9 +477,14 @@ static uint64_t AMMicrosecondsSinceBoot (void)
 	long estimatedTime;
 	BOOL error = NO;
 	
+#if __has_feature(objc_arc)
+	@autoreleasepool
+#else
 	NSAutoreleasePool *localAutoreleasePool = [[NSAutoreleasePool alloc] init];
 
 	[data retain];
+#endif
+	{
 	localBuffer = malloc(AMSER_MAXBUFSIZE);
 	stopWriteInBackground = NO;
 	[writeLock lock];	// write in sequence
@@ -542,8 +525,11 @@ static uint64_t AMMicrosecondsSinceBoot (void)
 	countWriteInBackgroundThreads--;
 	
 	free(localBuffer);
+	}
+#if !__has_feature(objc_arc)
 	[data release];
 	[localAutoreleasePool drain];
+#endif
 }
 
 - (id)am_readTarget
@@ -554,8 +540,10 @@ static uint64_t AMMicrosecondsSinceBoot (void)
 - (void)am_setReadTarget:(id)newReadTarget
 {
 	if (am_readTarget != newReadTarget) {
+#if !__has_feature(objc_arc)
 		[newReadTarget retain];
 		[am_readTarget release];
+#endif
 		am_readTarget = newReadTarget;
 	}
 }
