@@ -24,5 +24,6 @@
 
 - (IBAction)send:(id)sender;
 
+- (IBAction)sendSerialBreak:(id)sender;
 
 @end
