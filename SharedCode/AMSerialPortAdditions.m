@@ -42,6 +42,7 @@
 #import <sys/ioctl.h>
 #import <sys/filio.h>
 #import <pthread.h>
+#import <mach/mach_time.h>
 
 #import <assert.h>
 #import <CoreServices/CoreServices.h>
