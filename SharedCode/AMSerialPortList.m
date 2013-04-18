@@ -55,7 +55,9 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 #ifdef __OBJC_GC__
 			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
 			// it won't get collected since globals are strongly referenced.
-			[[self alloc] init]; // assignment not done here
+			// -autorelease is overwritten to do nothing
+			// This placates the static analyzer.
+			[[[self alloc] init] autorelease]; // assignment not done here
 #else
 			// The call to +alloc. Instead of sending it to MySingleton
 			// directly, we instead send it to [self class]. Normally they will 
@@ -63,7 +65,12 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 			// take the full advantage of Objective-C's polymorphism. By dynamically 
 			// looking up the class object at runtime, this allows for the shared instance
 			// to be an instance of a particular subclass.
-			AMSerialPortListSingleton = [[[self class] alloc] init];
+			AMSerialPortListSingleton = [[self alloc] init];
+            
+			// -release is overwritten to do nothing
+			// This placates the static analyzer.
+			[AMSerialPortListSingleton release];
+
 #endif
        }
     }
