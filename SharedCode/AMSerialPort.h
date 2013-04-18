@@ -2,7 +2,7 @@
 //  AMSerialPort.h
 //
 //  Created by Andreas on 2002-04-24.
-//  Copyright (c) 2001-2009 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2012 Andreas Mayer. All rights reserved.
 //
 //  2002-09-18 Andreas Mayer
 //  - added available & owner
@@ -26,6 +26,14 @@
 //  2008-10-21 Sean McBride
 //  - Added an API to open a serial port for exclusive use
 //  - fixed some memory management issues
+//  2011-10-14 Sean McBride
+//  - very minor cleanup
+//	2011-10-18 Andreas Mayer
+//	- added ARC compatibility
+//	- added accessors for ISIG, ECHOE, XON/XOFF as well as Start and Stop characters
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
+//  - changed delegate semantics to match Cocoa conventions: the delegate is no longer retained!
 
 
 /*
@@ -58,16 +66,7 @@
 
 #import "AMSDKCompatibility.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <paths.h>
 #include <termios.h>
-#include <sys/time.h>
-#include <sysexits.h>
-#include <sys/param.h>
 
 #import <Foundation/Foundation.h>
 
@@ -78,8 +77,16 @@
 #define	AMSerialOptionStopBits @"AMSerialOptionStopBits"
 #define	AMSerialOptionInputFlowControl @"AMSerialOptionInputFlowControl"
 #define	AMSerialOptionOutputFlowControl @"AMSerialOptionOutputFlowControl"
-#define	AMSerialOptionEcho @"AMSerialOptionEcho"
+#define	AMSerialOptionSignals @"AMSerialOptionSignals"
 #define	AMSerialOptionCanonicalMode @"AMSerialOptionCanonicalMode"
+#define	AMSerialOptionEcho @"AMSerialOptionEcho"
+#define	AMSerialOptionEchoErase @"AMSerialOptionEchoErase"
+#define	AMSerialOptionSoftwareFlowControl @"AMSerialOptionSoftwareFlowControl"
+#define	AMSerialOptionRemoteEcho @"AMSerialOptionRemoteEcho"
+#define	AMSerialOptionEndOfLineCharacter @"AMSerialOptionEndOfLineCharacter"
+#define	AMSerialOptionStartCharacter @"AMSerialOptionStartCharacter"
+#define	AMSerialOptionStopCharacter @"AMSerialOptionStopCharacter"
+
 
 // By default, debug code is preprocessed out.  If you would like to compile with debug code enabled,
 // "#define AMSerialDebug" before including any AMSerialPort headers, as in your prefix header
@@ -113,16 +120,16 @@ extern NSString *const AMSerialErrorDomain;
 	NSString *serviceName;
 	NSString *serviceType;
 	int fileDescriptor;
-	struct termios * __strong options;
-	struct termios * __strong originalOptions;
+    struct termios * options;
+	struct termios * originalOptions;
 	NSMutableDictionary *optionsDictionary;
 	NSFileHandle *fileHandle;
 	BOOL gotError;
 	int	lastError;
 	id owner;
-	char * __strong buffer;
+	char * buffer;
 	NSTimeInterval readTimeout; // for public blocking read methods and doRead
-	fd_set * __strong readfds;
+	fd_set * readfds;
 	id delegate;
 	BOOL delegateHandlesReadInBackground;
 	BOOL delegateHandlesWriteInBackground;
@@ -140,7 +147,8 @@ extern NSString *const AMSerialErrorDomain;
     NSOperationQueue *operationQueue;
 }
 
-- (id)init:(NSString *)path withName:(NSString *)name type:(NSString *)serialType;
+- (instancetype)init:(NSString *)path withName:(NSString *)name type:(NSString *)serialType;
+// Designated initializer
 // initializes port
 // path is a bsdPath
 // name is an IOKit service name
@@ -207,9 +215,10 @@ extern NSString *const AMSerialErrorDomain;
 // AMSerialOptionServiceName HAS to match! You may NOT switch ports using this
 // method.
 
+// Use the speeds defined in termios.h
 // reading and setting parameters is only useful if the serial port is already open
-- (long)speed;
-- (BOOL)setSpeed:(long)speed;
+- (unsigned long)speed;
+- (BOOL)setSpeed:(unsigned long)speed;
 
 - (unsigned long)dataBits;
 - (void)setDataBits:(unsigned long)bits;	// 5 to 8 (5 may not work)
@@ -219,9 +228,6 @@ extern NSString *const AMSerialErrorDomain;
 
 - (AMSerialStopBits)stopBits;
 - (void)setStopBits:(AMSerialStopBits)numBits;
-
-- (BOOL)echoEnabled;
-- (void)setEchoEnabled:(BOOL)echo;
 
 - (BOOL)RTSInputFlowControl;
 - (void)setRTSInputFlowControl:(BOOL)rts;
@@ -244,11 +250,35 @@ extern NSString *const AMSerialErrorDomain;
 - (BOOL)localMode;
 - (void)setLocalMode:(BOOL)local;	// YES = ignore modem status lines
 
-- (BOOL)canonicalMode;
+- (BOOL)signalsEnabled;			// (ISIG)
+- (void)setSignalsEnabled:(BOOL)signals;
+
+- (BOOL)canonicalMode;			// (ICANON)
 - (void)setCanonicalMode:(BOOL)flag;
+
+- (BOOL)echoEnabled;			// (ECHO)
+- (void)setEchoEnabled:(BOOL)echoE;
+
+- (BOOL)echoEraseEnabled;		// echo erase character as BS-SP-BS (ECHOE)
+- (void)setEchoEraseEnabled:(BOOL)echo;
 
 - (char)endOfLineCharacter;
 - (void)setEndOfLineCharacter:(char)eol;
+
+- (char)startCharacter;	// XON character - normally DC1 (021)
+- (void)setStartCharacter:(char)start;
+
+- (char)stopCharacter;	// XOFF character - normally DC3 (023)
+- (void)setStopCharacter:(char)stop;
+
+- (BOOL)softwareFlowControl;	// YES = uses XON/XOFF software flow control
+- (void)setSoftwareFlowControl:(BOOL)xonxoff;	// sets or clears XON and XOFF
+
+// these are shortcuts for getting/setting the mentioned flags separately
+- (BOOL)remoteEchoEnabled;	// YES if ICANON and ECHO are set
+- (void)setRemoteEchoEnabled:(BOOL)remoteEcho;	//	YES: set ICANON, ECHO and ECHOE
+                                                //	NO: clear ICANON, ECHO, ECHOE and ISIG
+
 
 - (unsigned long)minimumCharacterToRead;
 - (void)setMinimumCharacterToRead:(unsigned long)minCharMustRead;

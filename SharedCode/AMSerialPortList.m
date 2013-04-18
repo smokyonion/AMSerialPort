@@ -2,7 +2,7 @@
 //  AMSerialPortList.m
 //
 //  Created by Andreas on 2002-04-24.
-//  Copyright (c) 2001-2010 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2012 Andreas Mayer. All rights reserved.
 //
 //  2002-09-09 Andreas Mayer
 //  - reuse AMSerialPort objects when calling init on an existing AMSerialPortList
@@ -22,7 +22,17 @@
 //  - fixed some memory management issues
 //  2010-01-04 Sean McBride
 //  - fixed some memory management issues
-
+//  2011-08-18 Andreas Mayer
+//  - minor edits to placate the clang static analyzer
+//  2011-10-14 Sean McBride
+//  - removed one NSRunLoop method in favour of CFRunLoop
+//	2011-10-18 Andreas Mayer
+//	- added ARC compatibility
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
+//  - greatly simplified the various singleton implementations
+//  2012-03-27
+//  - use instancetype for singleton return value
 
 #import "AMSDKCompatibility.h"
 
@@ -38,8 +48,6 @@
 #include <IOKit/serial/IOSerialKeys.h>
 #include <IOKit/IOBSD.h>
 
-static AMSerialPortList *AMSerialPortListSingleton = nil;
-
 NSString *const AMSerialPortListDidAddPortsNotification = @"AMSerialPortListDidAddPortsNotification";
 NSString *const AMSerialPortListDidRemovePortsNotification = @"AMSerialPortListDidRemovePortsNotification";
 NSString *const AMSerialPortListAddedPorts = @"AMSerialPortListAddedPorts";
@@ -48,135 +56,41 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 
 @implementation AMSerialPortList
 
-+ (AMSerialPortList *)sharedPortList
-{
-    @synchronized(self) {
-        if (AMSerialPortListSingleton == nil) {
-#ifdef __OBJC_GC__
-			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
-			// it won't get collected since globals are strongly referenced.
-			[[self alloc] init]; // assignment not done here
-#else
-			// The call to +alloc. Instead of sending it to MySingleton
-			// directly, we instead send it to [self class]. Normally they will 
-			// give the same result. We use this implementation because we want to
-			// take the full advantage of Objective-C's polymorphism. By dynamically 
-			// looking up the class object at runtime, this allows for the shared instance
-			// to be an instance of a particular subclass.
-			AMSerialPortListSingleton = [[[self class] alloc] init];
-#endif
-       }
-    }
-    return AMSerialPortListSingleton;
-}
-
-#ifndef __OBJC_GC__
-
-// Every method that causes the allocation of a new instance needs 
-// to be overridden to prevent instantiation
-// +alloc, +new, +allocWithZone
-
-+ (id)alloc
-{
-	@synchronized([self class]) {
-		if (AMSerialPortListSingleton == nil) {
-			AMSerialPortListSingleton = [super alloc]; // assignment and return on first allocation
-			return AMSerialPortListSingleton;
++ (instancetype)sharedPortList {
+	static AMSerialPortList *sharedPortList = nil;
+	@synchronized([AMSerialPortList class]) {
+		if (!sharedPortList) {
+			sharedPortList = [[self alloc] init];
 		}
 	}
-	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
-		  Use +sharedMySingleton instaed of +alloc", [[self class] className]);
-	return nil;
+	return sharedPortList;
 }
 
-+ (id)allocWithZone:(NSZone *)zone
-{
-	@synchronized([self class]) {
-        if (AMSerialPortListSingleton == nil) {
-            AMSerialPortListSingleton = [super allocWithZone:zone];
-            return AMSerialPortListSingleton;  // assignment and return on first allocation
-        }
-    }
-	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
-		  Use +sharedMySingleton instaed of +allocWithZone", [[self class] className]);
-    return nil; // on subsequent allocation attempts return nil
-}
- 
-+ (id)new
-{
-	NSLog(@"%@: Use +sharedPortList instead of +new.", [[self class] className]);
-	@synchronized(self) {
-        if (AMSerialPortListSingleton == nil) {
-#ifdef __OBJC_GC__
-			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
-			// it won't get collected since globals are strongly referenced.
-			[[self alloc] init]; // assignment not done here
-#else
-			// The call to +alloc. Instead of sending it to MySingleton
-			// directly, we instead send it to [self class]. Normally they will 
-			// give the same result. We use this implementation because we want to
-			// take the full advantage of Objective-C's polymorphism. By dynamically 
-			// looking up the class object at runtime, this allows for the shared instance
-			// to be an instance of a particular subclass.
-			AMSerialPortListSingleton = [[[self class] alloc] init];
-#endif
-		}
-    }
-    return AMSerialPortListSingleton;
-}
-
-- (id)copyWithZone:(NSZone *)zone
-{
-	// -copy inherited from NSObject calls -copyWithZone:
-	NSLog(@"%@: attempt to -copy may be a bug", [[self class] className]);
-	//[self retain];
-    return self;
-}
-
-- (id)mutableCopyWithZone:(NSZone *)zone
-{
-	// -mutableCopy inherited from NSObject calls -mutableCopyWithZone
-	return [self copyWithZone:zone];
-}
- 
-- (id)retain
-{
-    return self;
-}
- 
-- (NSUInteger)retainCount
-{
-    return NSUIntegerMax;  //denotes an object that cannot be released
-}
- 
-- (oneway void)release
-{
-    //do nothing
-}
- 
-- (id)autorelease
-{
-    return self;
-}
-
-- (void)dealloc
-{
-	[portList release]; portList = nil;
-	[super dealloc];
-}
-
-#endif
 
 + (NSEnumerator *)portEnumerator
 {
-	return [[[AMStandardEnumerator alloc] initWithCollection:[AMSerialPortList sharedPortList]
-		countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)] autorelease];
+	id ports = [AMSerialPortList sharedPortList];
+	NSEnumerator *enumerator = [[AMStandardEnumerator alloc] initWithCollection:ports
+																  countSelector:@selector(count)
+														  objectAtIndexSelector:@selector(objectAtIndex:)];
+#if !__has_feature(objc_arc)
+	[enumerator autorelease];
+#endif
+	
+	return enumerator;
 }
 
 + (NSEnumerator *)portEnumeratorForSerialPortsOfType:(NSString *)serialTypeKey
 {
-	return [[[AMStandardEnumerator alloc] initWithCollection:[[AMSerialPortList sharedPortList]
-		serialPortsOfType:serialTypeKey] countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)] autorelease];
+	id ports = [[AMSerialPortList sharedPortList] serialPortsOfType:serialTypeKey];
+	NSEnumerator *enumerator = [[AMStandardEnumerator alloc] initWithCollection:ports
+																  countSelector:@selector(count)
+														  objectAtIndexSelector:@selector(objectAtIndex:)];
+#if !__has_feature(objc_arc)
+	[enumerator autorelease];
+#endif
+	
+	return enumerator;
 }
 
 - (AMSerialPort *)portByPath:(NSString *)bsdPath
@@ -206,10 +120,17 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 		CFStringRef serviceType = (CFStringRef)IORegistryEntryCreateCFProperty(serialService, CFSTR(kIOSerialBSDTypeKey), kCFAllocatorDefault, 0);
 		if (modemName && bsdPath) {
 			// If the port already exists in the list of ports, we want that one.  We only create a new one as a last resort.
+#if __has_feature(objc_arc)
+			serialPort = [self portByPath:(__bridge NSString*)bsdPath];
+			if (serialPort == nil) {
+				serialPort = [[AMSerialPort alloc] init:(__bridge NSString*)bsdPath withName:(__bridge NSString*)modemName type:(__bridge NSString*)serviceType];
+			}
+#else            
 			serialPort = [self portByPath:(NSString*)bsdPath];
 			if (serialPort == nil) {
 				serialPort = [[[AMSerialPort alloc] init:(NSString*)bsdPath withName:(NSString*)modemName type:(NSString*)serviceType] autorelease];
 			}
+#endif            
 		}
 		if (modemName) {
 			CFRelease(modemName);
@@ -276,7 +197,7 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 
 - (void)registerForSerialPortChangeNotifications
 {
-	IONotificationPortRef notificationPort = IONotificationPortCreate(kIOMasterPortDefault); 
+    IONotificationPortRef notificationPort = IONotificationPortCreate(kIOMasterPortDefault);
 	if (notificationPort) {
 		CFRunLoopSourceRef notificationSource = IONotificationPortGetRunLoopSource(notificationPort);
 		if (notificationSource) {
@@ -286,9 +207,9 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 				CFDictionarySetValue(classesToMatch1, CFSTR(kIOSerialBSDTypeKey), CFSTR(kIOSerialBSDAllTypes));
 				
 				// Copy classesToMatch1 now, while it has a non-zero ref count.
-				CFMutableDictionaryRef classesToMatch2 = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, classesToMatch1);			
+                CFMutableDictionaryRef classesToMatch2 = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, classesToMatch1);
 				// Add to the runloop
-				CFRunLoopAddSource([[NSRunLoop currentRunLoop] getCFRunLoop], notificationSource, kCFRunLoopCommonModes);
+                CFRunLoopAddSource(CFRunLoopGetCurrent(), notificationSource, kCFRunLoopCommonModes);
 				
 				// Set up notification for ports being added.
 				io_iterator_t unused;
@@ -318,13 +239,13 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 #endif
 			}
 		}
-		// Note that IONotificationPortDestroy(notificationPort) is deliberately not called here because if it were our port change notifications would never fire.  This minor leak is pretty irrelevent since this object is a singleton that lives for the life of the application anyway.
+		// Note that IONotificationPortDestroy(notificationPort) is deliberately not called here because if it were our port change notifications would never fire.  This minor leak is pretty irrelevant since this object is a singleton that lives for the life of the application anyway.
 	}
 }
 
 - (void)addAllSerialPortsToArray:(NSMutableArray *)array
 {
-	kern_return_t kernResult; 
+    kern_return_t kernResult;
 	CFMutableDictionaryRef classesToMatch;
 	io_iterator_t serialPortIterator;
 	AMSerialPort* serialPort;
@@ -335,8 +256,8 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 		CFDictionarySetValue(classesToMatch, CFSTR(kIOSerialBSDTypeKey), CFSTR(kIOSerialBSDAllTypes));
 
 		// This function decrements the refcount of the dictionary passed it
-		kernResult = IOServiceGetMatchingServices(kIOMasterPortDefault, classesToMatch, &serialPortIterator);    
-		if (kernResult == KERN_SUCCESS) {			
+		kernResult = IOServiceGetMatchingServices(kIOMasterPortDefault, classesToMatch, &serialPortIterator);
+		if (kernResult == KERN_SUCCESS) {
 			while ((serialPort = [self getNextSerialPort:serialPortIterator]) != nil) {
 				[array addObject:serialPort];
 			}
@@ -353,10 +274,10 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 	}
 }
 
-- (id)init
+- (instancetype)init
 {
 	if ((self = [super init])) {
-		portList = [[NSMutableArray array] retain];
+		portList = [[NSMutableArray alloc] init];
 	
 		[self addAllSerialPortsToArray:portList];
 		[self registerForSerialPortChangeNotifications];
@@ -391,7 +312,11 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 
 - (NSArray *)serialPorts
 {
-	return [[portList copy] autorelease];
+	NSArray *ports = [portList copy];
+#if !__has_feature(objc_arc)
+	[ports autorelease];
+#endif
+	return ports;
 }
 
 - (NSArray *)serialPortsOfType:(NSString *)serialTypeKey
