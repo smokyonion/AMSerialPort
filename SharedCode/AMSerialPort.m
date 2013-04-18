@@ -888,7 +888,7 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	} else {
 		options->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
 	}
-};
+}
 
 - (unsigned long)minimumCharacterToRead
 {
