@@ -361,28 +361,26 @@
 //http://developer.apple.com/library/mac/#qa/qa1398/_index.html
 static uint64_t AMMicrosecondsSinceBoot (void)
 {
-    uint64_t machTime;
-    uint64_t nanoSeconds;
-    static mach_timebase_info_data_t    sTimebaseInfo;
+    uint64_t upTime;
+    uint64_t upTimeNanoSeconds;
+    uint64_t upTimeMicroSeconds;
     
-    // Get the current clock time.
-    machTime = mach_absolute_time();
+    static mach_timebase_info_data_t machTimeBaseInfo;
     
     // If this is the first time we've run, get the timebase.
-    // We can use denom == 0 to indicate that sTimebaseInfo is
+    // We can use denom == 0 to indicate that machTimeBaseInfo is
     // uninitialised because it makes no sense to have a zero
     // denominator is a fraction.
-    
-    if ( sTimebaseInfo.denom == 0 ) {
-        (void) mach_timebase_info(&sTimebaseInfo);
+    if ( machTimeBaseInfo.denom == 0 ) {
+        (void) mach_timebase_info(&machTimeBaseInfo);
     }
     
-    // Do the maths. We hope that the multiplication doesn't
-    // overflow; the price you pay for working in fixed point.
+    // Get the current clock time.
+    upTime = mach_absolute_time();
     
-    nanoSeconds = machTime * sTimebaseInfo.numer / sTimebaseInfo.denom;
-    
-    return (nanoSeconds / 1000);
+    upTimeNanoSeconds = upTime * machTimeBaseInfo.numer / machTimeBaseInfo.denom;
+    upTimeMicroSeconds = (upTimeNanoSeconds / NSEC_PER_USEC);
+    return upTimeMicroSeconds;
 }
 
 @implementation AMSerialPort (AMSerialPortAdditionsPrivate)
