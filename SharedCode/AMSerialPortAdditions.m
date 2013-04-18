@@ -2,7 +2,7 @@
 //  AMSerialPortAdditions.m
 //
 //  Created by Andreas on Thu May 02 2002.
-//  Copyright (c) 2001-2010 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2011 Andreas Mayer. All rights reserved.
 //
 //  2002-07-02 Andreas Mayer
 //	- initialize buffer in readString
@@ -194,7 +194,7 @@
 	if (error) {
 		NSDictionary *userInfo = nil;
 		if (bytesWritten > 0) {
-			NSNumber* bytesWrittenNum = [NSNumber numberWithUnsignedLongLong:bytesWritten];
+            NSNumber* bytesWrittenNum = [NSNumber numberWithLongLong:bytesWritten];
 			userInfo = [NSDictionary dictionaryWithObject:bytesWrittenNum forKey:@"bytesWritten"];
 		}
 		*error = [NSError errorWithDomain:AMSerialErrorDomain code:errorCode userInfo:userInfo];
