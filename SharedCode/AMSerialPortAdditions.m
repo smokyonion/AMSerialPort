@@ -33,6 +33,8 @@
 //  - don't rely on system clock for measuring elapsed time (because the user can change the clock)
 //	2011-10-18 Andreas Mayer
 //	- added ARC compatibility
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
 
 
 #import "AMSDKCompatibility.h"
@@ -134,10 +136,9 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:NO bytes:0 stopAtChar:NO stopChar:0 error:error];
 	if (data) {
-#if __has_feature(objc_arc)
 		result = [[NSString alloc] initWithData:data encoding:encoding];
-#else
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+#if !__has_feature(objc_arc)
+		[result autorelease];
 #endif
 	}
 	return result;
@@ -148,10 +149,9 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:YES bytes:bytes stopAtChar:NO stopChar:0 error:error];
 	if (data) {
-#if __has_feature(objc_arc)
 		result = [[NSString alloc] initWithData:data encoding:encoding];
-#else
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+#if !__has_feature(objc_arc)
+		[result autorelease];
 #endif
 	}
 	return result;
@@ -163,10 +163,9 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:NO bytes:0 stopAtChar:YES stopChar:stopChar error:error];
 	if (data) {
-#if __has_feature(objc_arc)
 		result = [[NSString alloc] initWithData:data encoding:encoding];
-#else
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+#if !__has_feature(objc_arc)
+		[result autorelease];
 #endif
 	}
 	return result;
@@ -177,10 +176,9 @@
 	NSString *result = nil;
 	NSData *data = [self readAndStopAfterBytes:YES bytes:bytes stopAtChar:YES stopChar:stopChar error:error];
 	if (data) {
-#if __has_feature(objc_arc)
 		result = [[NSString alloc] initWithData:data encoding:encoding];
-#else
-		result = [[[NSString alloc] initWithData:data encoding:encoding] autorelease];
+#if !__has_feature(objc_arc)
+		[result autorelease];
 #endif
 	}
 	return result;

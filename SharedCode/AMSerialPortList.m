@@ -28,6 +28,9 @@
 //  - removed one NSRunLoop method in favour of CFRunLoop
 //	2011-10-18 Andreas Mayer
 //	- added ARC compatibility
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
+//  - greatly simplified the various singleton implementations
 
 #import "AMSDKCompatibility.h"
 
@@ -51,165 +54,41 @@ NSString *const AMSerialPortListRemovedPorts = @"AMSerialPortListRemovedPorts";
 
 @implementation AMSerialPortList
 
-#if __has_feature(objc_arc)
-
 + (AMSerialPortList *)sharedPortList {
-	static dispatch_once_t pred = 0;
-	__strong static AMSerialPortList *_sharedPortList = nil;
-	dispatch_once(&pred, ^{
-		_sharedPortList = [[AMSerialPortList alloc] init];
-	});
-	return _sharedPortList;
-}
-
-#else
-
-static AMSerialPortList *AMSerialPortListSingleton = nil;
-
-+ (AMSerialPortList *)sharedPortList
-{
-    @synchronized(self) {
-        if (AMSerialPortListSingleton == nil) {
-#ifdef __OBJC_GC__
-			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
-			// it won't get collected since globals are strongly referenced.
-			// -autorelease is overridden to do nothing
-			// This placates the static analyzer.
-			[[[self alloc] init] autorelease]; // assignment not done here
-#else
-			// The call to +alloc. Instead of sending it to MySingleton
-			// directly, we instead send it to [self class]. Normally they will 
-			// give the same result. We use this implementation because we want to
-			// take the full advantage of Objective-C's polymorphism. By dynamically 
-			// looking up the class object at runtime, this allows for the shared instance
-			// to be an instance of a particular subclass.
-			AMSerialPortListSingleton = [[self alloc] init];
-            
-			// -release is overridden to do nothing
-			// This placates the static analyzer.
-			[AMSerialPortListSingleton release];
-#endif
-       }
-    }
-    return AMSerialPortListSingleton;
-}
-
-#ifndef __OBJC_GC__
-
-// Every method that causes the allocation of a new instance needs 
-// to be overridden to prevent instantiation
-// +alloc, +new, +allocWithZone
-
-+ (id)alloc
-{
-	@synchronized([self class]) {
-		if (AMSerialPortListSingleton == nil) {
-			AMSerialPortListSingleton = [super alloc]; // assignment and return on first allocation
-			return AMSerialPortListSingleton;
+	static AMSerialPortList *sharedPortList = nil;
+	@synchronized([AMSerialPortList class]) {
+		if (!sharedPortList) {
+			sharedPortList = [[self alloc] init];
 		}
 	}
-	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
-		  Use +sharedMySingleton instaed of +alloc", [[self class] className]);
-	return nil;
+	return sharedPortList;
 }
 
-+ (id)allocWithZone:(NSZone *)zone
-{
-	@synchronized([self class]) {
-        if (AMSerialPortListSingleton == nil) {
-            AMSerialPortListSingleton = [super allocWithZone:zone];
-            return AMSerialPortListSingleton;  // assignment and return on first allocation
-        }
-    }
-	NSLog(@"%@: Attempted to allocate a second instance of a singleton. \
-		  Use +sharedMySingleton instaed of +allocWithZone", [[self class] className]);
-    return nil; // on subsequent allocation attempts return nil
-}
- 
-+ (id)new
-{
-	NSLog(@"%@: Use +sharedPortList instead of +new.", [[self class] className]);
-	@synchronized(self) {
-        if (AMSerialPortListSingleton == nil) {
-#ifdef __OBJC_GC__
-			// Singleton creation is easy in the GC case, just create it if it hasn't been created yet,
-			// it won't get collected since globals are strongly referenced.
-			[[self alloc] init]; // assignment not done here
-#else
-			// The call to +alloc. Instead of sending it to MySingleton
-			// directly, we instead send it to [self class]. Normally they will 
-			// give the same result. We use this implementation because we want to
-			// take the full advantage of Objective-C's polymorphism. By dynamically 
-			// looking up the class object at runtime, this allows for the shared instance
-			// to be an instance of a particular subclass.
-			AMSerialPortListSingleton = [[[self class] alloc] init];
-#endif
-		}
-    }
-    return AMSerialPortListSingleton;
-}
-
-- (id)copyWithZone:(NSZone *)zone
-{
-	// -copy inherited from NSObject calls -copyWithZone:
-	NSLog(@"%@: attempt to -copy may be a bug", [[self class] className]);
-	//[self retain];
-    return self;
-}
-
-- (id)mutableCopyWithZone:(NSZone *)zone
-{
-	// -mutableCopy inherited from NSObject calls -mutableCopyWithZone
-	return [self copyWithZone:zone];
-}
- 
-- (id)retain
-{
-    return self;
-}
- 
-- (NSUInteger)retainCount
-{
-    return NSUIntegerMax;  //denotes an object that cannot be released
-}
- 
-- (oneway void)release
-{
-    //do nothing
-}
- 
-- (id)autorelease
-{
-    return self;
-}
-
-- (void)dealloc
-{
-	[portList release]; portList = nil;
-	[super dealloc];
-}
-
-#endif	// #ifndef __OBJC_GC__
-#endif	// #if __has_feature(objc_arc)
 
 + (NSEnumerator *)portEnumerator
 {
-#if __has_feature(objc_arc)
-	return [[AMStandardEnumerator alloc] initWithCollection:[AMSerialPortList sharedPortList] countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)];
-#else
-	return [[[AMStandardEnumerator alloc] initWithCollection:[AMSerialPortList sharedPortList]
-                                               countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)] autorelease];
+	id ports = [AMSerialPortList sharedPortList];
+	NSEnumerator *enumerator = [[AMStandardEnumerator alloc] initWithCollection:ports
+																  countSelector:@selector(count)
+														  objectAtIndexSelector:@selector(objectAtIndex:)];
+#if !__has_feature(objc_arc)
+	[enumerator autorelease];
 #endif
+	
+	return enumerator;
 }
 
 + (NSEnumerator *)portEnumeratorForSerialPortsOfType:(NSString *)serialTypeKey
 {
-#if __has_feature(objc_arc)
-	return [[AMStandardEnumerator alloc] initWithCollection:[[AMSerialPortList sharedPortList] serialPortsOfType:serialTypeKey] countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)];
-#else
-	return [[[AMStandardEnumerator alloc] initWithCollection:[[AMSerialPortList sharedPortList]
-                                                              serialPortsOfType:serialTypeKey] countSelector:@selector(count) objectAtIndexSelector:@selector(objectAtIndex:)] autorelease];
+	id ports = [[AMSerialPortList sharedPortList] serialPortsOfType:serialTypeKey];
+	NSEnumerator *enumerator = [[AMStandardEnumerator alloc] initWithCollection:ports
+																  countSelector:@selector(count)
+														  objectAtIndexSelector:@selector(objectAtIndex:)];
+#if !__has_feature(objc_arc)
+	[enumerator autorelease];
 #endif
+	
+	return enumerator;
 }
 
 - (AMSerialPort *)portByPath:(NSString *)bsdPath
@@ -396,11 +275,7 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 - (id)init
 {
 	if ((self = [super init])) {
-#if __has_feature(objc_arc)
-		portList = [NSMutableArray array];
-#else
-		portList = [[NSMutableArray array] retain];
-#endif
+		portList = [[NSMutableArray alloc] init];
 	
 		[self addAllSerialPortsToArray:portList];
 		[self registerForSerialPortChangeNotifications];
@@ -435,11 +310,11 @@ static void AMSerialPortWasRemovedNotification(void *refcon, io_iterator_t itera
 
 - (NSArray *)serialPorts
 {
-#if __has_feature(objc_arc)
-	return [portList copy];
-#else
-	return [[portList copy] autorelease];
+	NSArray *ports = [portList copy];
+#if !__has_feature(objc_arc)
+	[ports autorelease];
 #endif
+	return ports;
 }
 
 - (NSArray *)serialPortsOfType:(NSString *)serialTypeKey
