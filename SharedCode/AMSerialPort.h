@@ -26,6 +26,8 @@
 //  2008-10-21 Sean McBride
 //  - Added an API to open a serial port for exclusive use
 //  - fixed some memory management issues
+//  2011-10-14 Sean McBride
+//  - very minor cleanup
 
 
 /*
@@ -58,16 +60,7 @@
 
 #import "AMSDKCompatibility.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <paths.h>
 #include <termios.h>
-#include <sys/time.h>
-#include <sysexits.h>
-#include <sys/param.h>
 
 #import <Foundation/Foundation.h>
 
@@ -141,6 +134,7 @@ extern NSString *const AMSerialErrorDomain;
 }
 
 - (id)init:(NSString *)path withName:(NSString *)name type:(NSString *)serialType;
+// Designated initializer
 // initializes port
 // path is a bsdPath
 // name is an IOKit service name
@@ -207,6 +201,7 @@ extern NSString *const AMSerialErrorDomain;
 // AMSerialOptionServiceName HAS to match! You may NOT switch ports using this
 // method.
 
+// Use the speeds defined in termios.h
 // reading and setting parameters is only useful if the serial port is already open
 - (unsigned long)speed;
 - (BOOL)setSpeed:(unsigned long)speed;
