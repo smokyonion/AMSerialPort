@@ -2,7 +2,7 @@
 //  AMSerialPort.m
 //
 //  Created by Andreas on 2002-04-24.
-//  Copyright (c) 2001-2009 Andreas Mayer. All rights reserved.
+//  Copyright (c) 2001-2012 Andreas Mayer. All rights reserved.
 //
 //  2002-09-18 Andreas Mayer
 //  - added available & owner
@@ -27,19 +27,20 @@
 //  2009-08-06 Sean McBride
 //  - no longer compare BOOL against YES (dangerous!)
 //  - renamed method to start with lowercase letter, as per Cocoa convention
+//  2011-10-14 Sean McBride
+//  - very minor cleanup
+//	2011-10-18 Andreas Mayer
+//	- added ARC compatibility
+//	- added accessors for ISIG, ECHOE, XON/XOFF as well as Start and Stop characters
+//	- options dictionary will cover more settings; fixed handling of some flags
+//	2011-10-19 Sean McBride
+//	- code review of ARC changes
+//  - changed delegate semantics to match Cocoa conventions: the delegate is no longer retained!
+//	2012-06-20 Sean McBride
+//	- fixed possible out of range exception and compiler warning
 
 #import "AMSDKCompatibility.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <paths.h>
-#include <termios.h>
-#include <sys/time.h>
-#include <sysexits.h>
-#include <sys/param.h>
 #include <sys/ioctl.h>
 
 #import "AMSerialPort.h"
@@ -55,7 +56,8 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 
 @implementation AMSerialPort
 
-- (id)init:(NSString *)path withName:(NSString *)name type:(NSString *)type
+// Designated initializer
+- (instancetype)init:(NSString *)path withName:(NSString *)name type:(NSString *)type
 	// path is a bsdPath
 	// name is an IOKit service name
 {
@@ -63,18 +65,12 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		bsdPath = [path copy];
 		serviceName = [name copy];
 		serviceType = [type copy];
-		optionsDictionary = [[NSMutableDictionary dictionaryWithCapacity:8] retain];
-#ifndef __OBJC_GC__
-		options = (struct termios* __strong)malloc(sizeof(*options));
-		originalOptions = (struct termios* __strong)malloc(sizeof(*originalOptions));
-		buffer = (char* __strong)malloc(AMSER_MAXBUFSIZE);
-		readfds = (fd_set* __strong)malloc(sizeof(*readfds));
-#else
-		options = (struct termios* __strong)NSAllocateCollectable(sizeof(*options), 0);
-		originalOptions = (struct termios* __strong)NSAllocateCollectable(sizeof(*originalOptions), 0);
-		buffer = (char* __strong)NSAllocateCollectable(AMSER_MAXBUFSIZE, 0);
-		readfds = (fd_set* __strong)NSAllocateCollectable(sizeof(*readfds), 0);
-#endif
+		optionsDictionary = [[NSMutableDictionary alloc] initWithCapacity:8];
+
+		options = (struct termios *)malloc(sizeof(*options));
+		originalOptions = (struct termios *)malloc(sizeof(*originalOptions));
+		buffer = (char *)malloc(AMSER_MAXBUFSIZE);
+		readfds = (fd_set *)malloc(sizeof(*readfds));
 		fileDescriptor = -1;
 		
 		writeLock = [[NSLock alloc] init];
@@ -108,21 +104,24 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		NSLog(@"It is a programmer error to have not called -close on an AMSerialPort you have opened");
 #endif
 	
+    free(readfds); readfds = NULL;
+	free(buffer); buffer = NULL;
+	free(originalOptions); originalOptions = NULL;
+	free(options); options = NULL;
+
+#if !__has_feature(objc_arc)
 	[readLock release]; readLock = nil;
 	[writeLock release]; writeLock = nil;
 	[closeLock release]; closeLock = nil;
 	[am_readTarget release]; am_readTarget = nil;
 	
-	free(readfds); readfds = NULL;
-	free(buffer); buffer = NULL;
-	free(originalOptions); originalOptions = NULL;
-	free(options); options = NULL;
 	[optionsDictionary release]; optionsDictionary = nil;
 	[serviceName release]; serviceName = nil;
 	[serviceType release]; serviceType = nil;
 	[bsdPath release]; bsdPath = nil;
     [operationQueue release]; operationQueue = nil;
 	[super dealloc];
+#endif
 }
 
 #else
@@ -134,7 +133,11 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		NSLog(@"It is a programmer error to have not called -close on an AMSerialPort you have opened");
 #endif
 	assert (fileDescriptor == -1);
-
+    
+	free(readfds); readfds = NULL;
+	free(buffer); buffer = NULL;
+	free(originalOptions); originalOptions = NULL;
+	free(options); options = NULL;
 	[super finalize];
 }
 
@@ -167,12 +170,9 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 
 - (void)setDelegate:(id)newDelegate
 {
-	id old = nil;
-	
 	if (newDelegate != delegate) {
-		old = delegate;
-		delegate = [newDelegate retain];
-		[old release];
+		// As per Cocoa conventions, delegates are not retained.
+		delegate = newDelegate;
 		delegateHandlesReadInBackground = [delegate respondsToSelector:@selector(serialPortReadData:)];
 		delegateHandlesWriteInBackground = [delegate respondsToSelector:@selector(serialPortWriteProgress:)];
 	}
@@ -202,7 +202,12 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	io_service_t serialService;
 	
 	matchingDictionary = IOServiceMatching(kIOSerialBSDServiceValue);
+    
+#if __has_feature(objc_arc)
+	CFDictionarySetValue(matchingDictionary, CFSTR(kIOTTYDeviceKey), (__bridge CFStringRef)[self name]);
+#else
 	CFDictionarySetValue(matchingDictionary, CFSTR(kIOTTYDeviceKey), (CFStringRef)[self name]);
+#endif
 	if (matchingDictionary != NULL) {
 		CFRetain(matchingDictionary);
 		// This function decrements the refcount of the dictionary passed it
@@ -212,7 +217,12 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 			CFMutableDictionaryRef propertiesDict = NULL;
 			kernResult = IORegistryEntryCreateCFProperties(serialService, &propertiesDict, kCFAllocatorDefault, 0);
 			if (kernResult == KERN_SUCCESS) {
+#if __has_feature(objc_arc)
+				result = [(__bridge NSDictionary*)propertiesDict copy];
+#else
 				result = [[(NSDictionary*)propertiesDict copy] autorelease];
+#endif
+
 			}
 			if (propertiesDict) {
 				CFRelease(propertiesDict);
@@ -270,7 +280,11 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 {
 	NSFileHandle *result = nil;
 	
+#ifdef __OBJC_GC__
+	__strong const char *path = [bsdPath fileSystemRepresentation];
+#else
 	const char *path = [bsdPath fileSystemRepresentation];
+#endif
 	fileDescriptor = open(path, flags);
 
 #ifdef AMSerialDebug
@@ -351,7 +365,9 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		[fileHandle closeFile];
 
 		// Release the fileHandle
+#if !__has_feature(objc_arc)
 		[fileHandle release];
+#endif
 		fileHandle = nil;
 		
 #ifdef AMSerialDebug
@@ -426,11 +442,13 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	}
 	
 	[optionsDictionary setObject:[NSString stringWithFormat:@"%d", [self stopBits]] forKey:AMSerialOptionStopBits];
+    [optionsDictionary setObject:@"None" forKey:AMSerialOptionInputFlowControl];
 	if ([self RTSInputFlowControl])
 		[optionsDictionary setObject:@"RTS" forKey:AMSerialOptionInputFlowControl];
 	if ([self DTRInputFlowControl])
 		[optionsDictionary setObject:@"DTR" forKey:AMSerialOptionInputFlowControl];
 	
+    [optionsDictionary setObject:@"None" forKey:AMSerialOptionOutputFlowControl];
 	if ([self CTSOutputFlowControl])
 		[optionsDictionary setObject:@"CTS" forKey:AMSerialOptionOutputFlowControl];
 	if ([self DSROutputFlowControl])
@@ -438,12 +456,27 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 	if ([self CAROutputFlowControl])
 		[optionsDictionary setObject:@"CAR" forKey:AMSerialOptionOutputFlowControl];
 	
-	if ([self echoEnabled])
-		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionEcho];
-
+	if ([self softwareFlowControl])
+		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionSoftwareFlowControl];
+	
+	if ([self signalsEnabled])
+		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionSignals];
+	
 	if ([self canonicalMode])
 		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionCanonicalMode];
-
+	
+	if ([self echoEnabled])
+		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionEcho];
+	
+	if ([self echoEraseEnabled])
+		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionEchoErase];
+	
+	if ([self softwareFlowControl])
+		[optionsDictionary setObject:@"YES" forKey:AMSerialOptionSoftwareFlowControl];
+    
+	[optionsDictionary setObject:[NSString stringWithFormat:@"%c", [self endOfLineCharacter]] forKey:AMSerialOptionEndOfLineCharacter];
+	[optionsDictionary setObject:[NSString stringWithFormat:@"%c", [self startCharacter]] forKey:AMSerialOptionStartCharacter];
+	[optionsDictionary setObject:[NSString stringWithFormat:@"%c", [self stopCharacter]] forKey:AMSerialOptionStopCharacter];
 }
 
 
@@ -477,7 +510,7 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		[self setDataBits:[temp intValue]];
 		
 		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionParity];
-		if (temp == nil)
+        if (temp == nil || [temp isEqualToString:@"None"])
 			[self setParity:kAMSerialParityNone];
 		else if ([temp isEqualToString:@"Odd"])
 			[self setParity:kAMSerialParityOdd];
@@ -485,7 +518,7 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 			[self setParity:kAMSerialParityEven];
 		
 		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionStopBits];
-		int		numStopBits = [temp intValue];
+		int numStopBits = [temp intValue];
 		[self setStopBits:(AMSerialStopBits)numStopBits];
 		
 		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionInputFlowControl];
@@ -497,11 +530,38 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		[self setDSROutputFlowControl:[temp isEqualToString:@"DSR"]];
 		[self setCAROutputFlowControl:[temp isEqualToString:@"CAR"]];
 		
-		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionEcho];
-		[self setEchoEnabled:(temp != nil)];
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionSignals];
+		[self setSignalsEnabled:(temp != nil && [temp isEqualToString:@"YES"])];
 
 		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionCanonicalMode];
-		[self setCanonicalMode:(temp != nil)];
+		[self setCanonicalMode:(temp != nil && [temp isEqualToString:@"YES"])];
+        
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionEcho];
+		[self setEchoEnabled:(temp != nil && [temp isEqualToString:@"YES"])];
+		
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionEchoErase];
+		[self setEchoEraseEnabled:(temp != nil && [temp isEqualToString:@"YES"])];
+		
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionSoftwareFlowControl];
+		[self setSoftwareFlowControl:(temp != nil && [temp isEqualToString:@"YES"])];
+        
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionEndOfLineCharacter];
+		if ([temp length] > 0) {
+			unichar character = [temp characterAtIndex:0];
+			[self setEndOfLineCharacter:(char)character]; // this assumes that the character in question is a single byte char
+		}
+        
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionStartCharacter];
+		if ([temp length] > 0) {
+			unichar character = [temp characterAtIndex:0];
+			[self setStartCharacter:(char)character]; // this assumes that the character in question is a single byte char
+		}
+
+		temp = (NSString *)[optionsDictionary objectForKey:AMSerialOptionStopCharacter];
+		if ([temp length] > 0) {
+			unichar character = [temp characterAtIndex:0];
+			[self setStopCharacter:(char)character]; // this assumes that the character in question is a single byte char
+		}
 
 		[self commitChanges];
 	} else {
@@ -512,12 +572,12 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 }
 
 
-- (long)speed
+- (unsigned long)speed
 {
 	return cfgetospeed(options);	// we should support cfgetispeed too
 }
 
-- (BOOL)setSpeed:(long)speed
+- (BOOL)setSpeed:(unsigned long)speed
 {
 	BOOL result = YES;
 	// we should support setting input and output speed separately
@@ -629,20 +689,6 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 }
 
 
-- (BOOL)echoEnabled
-{
-	return (options->c_lflag & ECHO);
-}
-
-- (void)setEchoEnabled:(BOOL)echo
-{
-	if (echo)
-		options->c_lflag |= ECHO;
-	else
-		options->c_lflag &= ~ECHO;
-}
-
-
 - (BOOL)RTSInputFlowControl
 {
 	return (options->c_cflag & CRTS_IFLOW);
@@ -740,6 +786,19 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		options->c_cflag &= ~CLOCAL;
 }
 
+- (BOOL)signalsEnabled
+{
+	return (options->c_lflag & ICANON) != 0;
+}
+
+- (void)setSignalsEnabled:(BOOL)signals
+{
+	if (signals)
+		options->c_lflag |= ISIG;
+	else
+		options->c_lflag &= ~ISIG;
+}
+
 - (BOOL)canonicalMode
 {
 	return (options->c_lflag & ICANON);
@@ -753,6 +812,32 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 		options->c_lflag &= ~ICANON;
 }
 
+- (BOOL)echoEnabled
+{
+	return (options->c_lflag & ECHO);
+}
+
+- (void)setEchoEnabled:(BOOL)echo
+{
+	if (echo)
+		options->c_lflag |= ECHO;
+	else
+		options->c_lflag &= ~ECHO;
+}
+
+- (BOOL)echoEraseEnabled
+{
+	return (options->c_lflag & ECHO);
+}
+
+- (void)setEchoEraseEnabled:(BOOL)echoE
+{
+	if (echoE)
+		options->c_lflag |= ECHOE;
+	else
+		options->c_lflag &= ~ECHOE;
+}
+
 - (char)endOfLineCharacter
 {
 	return options->c_cc[VEOL];
@@ -761,6 +846,58 @@ NSString *const AMSerialErrorDomain = @"de.harmless.AMSerial.ErrorDomain";
 - (void)setEndOfLineCharacter:(char)eol
 {
 	options->c_cc[VEOL] = eol;
+}
+
+- (char)startCharacter
+{
+	return options->c_cc[VSTART];
+}
+
+- (void)setStartCharacter:(char)start
+{
+	options->c_cc[VSTART] = start;
+}
+
+- (char)stopCharacter
+{
+	return options->c_cc[VSTOP];
+}
+
+- (void)setStopCharacter:(char)stop
+{
+	options->c_cc[VSTOP] = stop;
+}
+
+- (BOOL)softwareFlowControl
+{
+	BOOL xon = (options->c_iflag & IXON) != 0;
+	BOOL xoff = (options->c_iflag & IXOFF) != 0;
+	return xon || xoff;
+}
+
+- (void)setSoftwareFlowControl:(BOOL)xonxoff
+{
+	if (xonxoff) {
+		options->c_iflag |= (IXON | IXOFF);
+	} else {
+		options->c_iflag &= ~(IXON | IXOFF);
+	}
+}
+
+- (BOOL)remoteEchoEnabled
+{
+	BOOL icanon = (options->c_lflag & ICANON) != 0;
+	BOOL echo = (options->c_lflag & ECHO) != 0;
+	return icanon && echo;
+}
+
+- (void)setRemoteEchoEnabled:(BOOL)remoteEcho
+{
+	if (remoteEcho) {
+		options->c_lflag |= (ICANON | ECHO | ECHOE);
+	} else {
+		options->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+	}
 }
 
 - (unsigned long)minimumCharacterToRead
